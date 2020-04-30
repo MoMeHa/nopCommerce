@@ -6,7 +6,7 @@ using Nop.Core.Caching;
 using Nop.Core.Domain.Customers;
 using Nop.Core.Domain.Security;
 using Nop.Data;
-using Nop.Services.Caching.CachingDefaults;
+using Nop.Services.Caching;
 using Nop.Services.Caching.Extensions;
 using Nop.Services.Customers;
 using Nop.Services.Events;
@@ -21,6 +21,7 @@ namespace Nop.Services.Security
     {
         #region Fields
 
+        private readonly ICacheKeyService _cacheKeyService;
         private readonly ICustomerService _customerService;
         private readonly IEventPublisher _eventPublisher;
         private readonly ILocalizationService _localizationService;
@@ -33,16 +34,18 @@ namespace Nop.Services.Security
 
         #region Ctor
 
-        public PermissionService(ICustomerService customerService,
-            IEventPublisher eventPublishe,
+        public PermissionService(ICacheKeyService cacheKeyService,
+            ICustomerService customerService,
+            IEventPublisher eventPublisher,
             ILocalizationService localizationService,
             IRepository<PermissionRecord> permissionRecordRepository,
             IRepository<PermissionRecordCustomerRoleMapping> permissionRecordCustomerRoleMappingRepository,
             IStaticCacheManager staticCacheManager,
             IWorkContext workContext)
         {
+            _cacheKeyService = cacheKeyService;
             _customerService = customerService;
-            _eventPublisher = eventPublishe;
+            _eventPublisher = eventPublisher;
             _localizationService = localizationService;
             _permissionRecordRepository = permissionRecordRepository;
             _permissionRecordCustomerRoleMappingRepository = permissionRecordCustomerRoleMappingRepository;
@@ -61,7 +64,7 @@ namespace Nop.Services.Security
         /// <returns>Permissions</returns>
         protected virtual IList<PermissionRecord> GetPermissionRecordsByCustomerRoleId(int customerRoleId)
         {
-            var key = NopSecurityCachingDefaults.PermissionsAllByCustomerRoleIdCacheKey.FillCacheKey(customerRoleId);
+            var key = _cacheKeyService.PrepareKeyForDefaultCache(NopSecurityDefaults.PermissionsAllByCustomerRoleIdCacheKey, customerRoleId);
 
             var query = from pr in _permissionRecordRepository.Table
                 join prcrm in _permissionRecordCustomerRoleMappingRepository.Table on pr.Id equals prcrm
@@ -320,7 +323,8 @@ namespace Nop.Services.Security
             if (string.IsNullOrEmpty(permissionRecordSystemName))
                 return false;
 
-            var key = NopSecurityCachingDefaults.PermissionsAllowedCacheKey.FillCacheKey(permissionRecordSystemName, customerRoleId);
+            var key = _cacheKeyService.PrepareKeyForDefaultCache(NopSecurityDefaults.PermissionsAllowedCacheKey, permissionRecordSystemName, customerRoleId);
+
             return _staticCacheManager.Get(key, () =>
             {
                 var permissions = GetPermissionRecordsByCustomerRoleId(customerRoleId);
@@ -358,6 +362,9 @@ namespace Nop.Services.Security
                 throw new Exception(string.Empty);
 
             _permissionRecordCustomerRoleMappingRepository.Delete(mapping);
+
+            //event notification
+            _eventPublisher.EntityDeleted(mapping);
         }
 
         /// <summary>
@@ -370,6 +377,9 @@ namespace Nop.Services.Security
                 throw new ArgumentNullException(nameof(permissionRecordCustomerRoleMapping));
 
             _permissionRecordCustomerRoleMappingRepository.Insert(permissionRecordCustomerRoleMapping);
+
+            //event notification
+            _eventPublisher.EntityInserted(permissionRecordCustomerRoleMapping);
         }
 
         #endregion

@@ -95,9 +95,8 @@ namespace Nop.Data
         /// </summary>
         /// <param name="targetTable">Target table name</param>
         /// <param name="targetColumn">Target column name</param>
-        /// <param name="isShort">Indicates whether to use short form</param>
         /// <returns>Name of an index</returns>
-        string GetIndexName(string targetTable, string targetColumn, bool isShort = true);
+        string GetIndexName(string targetTable, string targetColumn);
 
         /// <summary>
         /// Returns queryable source for specified mapping class for current connection,
@@ -156,7 +155,7 @@ namespace Nop.Data
         /// <typeparam name="TEntity">Type of entity</typeparam>
         /// <returns>Mapped entity descriptor</returns>
         EntityDescriptor GetEntityDescriptor<TEntity>() where TEntity : BaseEntity;
-
+        
         /// <summary>
         /// Executes command using System.Data.CommandType.StoredProcedure command type and
         /// returns results as collection of values of specified type

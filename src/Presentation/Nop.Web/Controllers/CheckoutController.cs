@@ -134,38 +134,6 @@ namespace Nop.Web.Controllers
         }
 
         /// <summary>
-        /// Generate an order GUID
-        /// </summary>
-        /// <param name="processPaymentRequest">Process payment request</param>
-        protected virtual void GenerateOrderGuid(ProcessPaymentRequest processPaymentRequest)
-        {
-            if (processPaymentRequest == null)
-                return;
-
-            //we should use the same GUID for multiple payment attempts
-            //this way a payment gateway can prevent security issues such as credit card brute-force attacks
-            //in order to avoid any possible limitations by payment gateway we reset GUID periodically
-            var previousPaymentRequest = HttpContext.Session.Get<ProcessPaymentRequest>("OrderPaymentInfo");
-            if (_paymentSettings.RegenerateOrderGuidInterval > 0 &&
-                previousPaymentRequest != null &&
-                previousPaymentRequest.OrderGuidGeneratedOnUtc.HasValue)
-            {
-                var interval = DateTime.UtcNow - previousPaymentRequest.OrderGuidGeneratedOnUtc.Value;
-                if (interval.TotalSeconds < _paymentSettings.RegenerateOrderGuidInterval)
-                {
-                    processPaymentRequest.OrderGuid = previousPaymentRequest.OrderGuid;
-                    processPaymentRequest.OrderGuidGeneratedOnUtc = previousPaymentRequest.OrderGuidGeneratedOnUtc;
-                }
-            }
-
-            if (processPaymentRequest.OrderGuid == Guid.Empty)
-            {
-                processPaymentRequest.OrderGuid = Guid.NewGuid();
-                processPaymentRequest.OrderGuidGeneratedOnUtc = DateTime.UtcNow;
-            }
-        }
-
-        /// <summary>
         /// Parses the value indicating whether the "pickup in store" is allowed
         /// </summary>
         /// <param name="form">The form</param>
@@ -209,7 +177,8 @@ namespace Nop.Web.Controllers
                 Name = string.Format(_localizationService.GetResource("Checkout.PickupPoints.Name"), pickupPoint.Name),
                 Rate = pickupPoint.PickupFee,
                 Description = pickupPoint.Description,
-                ShippingRateComputationMethodSystemName = pickupPoint.ProviderSystemName
+                ShippingRateComputationMethodSystemName = pickupPoint.ProviderSystemName,
+                IsPickupInStore = true
             };
             _genericAttributeService.SaveAttribute(_workContext.CurrentCustomer, NopCustomerDefaults.SelectedShippingOptionAttribute, pickUpInStoreShippingOption, _storeContext.CurrentStore.Id);
             _genericAttributeService.SaveAttribute(_workContext.CurrentCustomer, NopCustomerDefaults.SelectedPickupPointAttribute, pickupPoint, _storeContext.CurrentStore.Id);
@@ -504,7 +473,7 @@ namespace Nop.Web.Controllers
                 return RedirectToRoute("CheckoutShippingMethod");        
 
             //model
-            var model = _checkoutModelFactory.PrepareShippingAddressModel(prePopulateNewAddressWithCustomerFields: true);
+            var model = _checkoutModelFactory.PrepareShippingAddressModel(cart, prePopulateNewAddressWithCustomerFields: true);
             return View(model);
         }
 
@@ -613,7 +582,7 @@ namespace Nop.Web.Controllers
             }
 
             //If we got this far, something failed, redisplay form
-            model = _checkoutModelFactory.PrepareShippingAddressModel(
+            model = _checkoutModelFactory.PrepareShippingAddressModel(cart,
                 selectedCountryId: newAddress.CountryId,
                 overrideAttributesXml: customAttributes);
             return View(model);
@@ -931,7 +900,7 @@ namespace Nop.Web.Controllers
                 //get payment info
                 var paymentInfo = paymentMethod.GetPaymentInfo(form);
                 //set previous order GUID (if exists)
-                GenerateOrderGuid(paymentInfo);
+                _paymentService.GenerateOrderGuid(paymentInfo);
 
                 //session save
                 HttpContext.Session.Set("OrderPaymentInfo", paymentInfo);
@@ -1002,7 +971,7 @@ namespace Nop.Web.Controllers
 
                     processPaymentRequest = new ProcessPaymentRequest();
                 }
-                GenerateOrderGuid(processPaymentRequest);
+                _paymentService.GenerateOrderGuid(processPaymentRequest);
                 processPaymentRequest.StoreId = _storeContext.CurrentStore.Id;
                 processPaymentRequest.CustomerId = _workContext.CurrentCustomer.Id;
                 processPaymentRequest.PaymentMethodSystemName = _genericAttributeService.GetAttribute<string>(_workContext.CurrentCustomer,
@@ -1218,7 +1187,7 @@ namespace Nop.Web.Controllers
                 {
                     //existing address
                     var address = _customerService.GetCustomerAddress(_workContext.CurrentCustomer.Id, billingAddressId)
-                        ?? throw new Exception("Address can't be loaded");
+                        ?? throw new Exception(_localizationService.GetResource("Checkout.Address.NotFound"));
 
                     _workContext.CurrentCustomer.BillingAddressId = address.Id;
                     _customerService.UpdateCustomer(_workContext.CurrentCustomer);
@@ -1307,7 +1276,7 @@ namespace Nop.Web.Controllers
                     }
 
                     //do not ship to the same address
-                    var shippingAddressModel = _checkoutModelFactory.PrepareShippingAddressModel(prePopulateNewAddressWithCustomerFields: true);
+                    var shippingAddressModel = _checkoutModelFactory.PrepareShippingAddressModel(cart, prePopulateNewAddressWithCustomerFields: true);
 
                     return Json(new
                     {
@@ -1378,7 +1347,7 @@ namespace Nop.Web.Controllers
                 {
                     //existing address
                     var address = _customerService.GetCustomerAddress(_workContext.CurrentCustomer.Id, shippingAddressId)
-                        ?? throw new Exception("Address can't be loaded");
+                        ?? throw new Exception(_localizationService.GetResource("Checkout.Address.NotFound"));
 
                     _workContext.CurrentCustomer.ShippingAddressId = address.Id;
                     _customerService.UpdateCustomer(_workContext.CurrentCustomer);
@@ -1400,7 +1369,7 @@ namespace Nop.Web.Controllers
                     if (!ModelState.IsValid)
                     {
                         //model is not valid. redisplay the form with errors
-                        var shippingAddressModel = _checkoutModelFactory.PrepareShippingAddressModel(
+                        var shippingAddressModel = _checkoutModelFactory.PrepareShippingAddressModel(cart,
                             selectedCountryId: newAddress.CountryId,
                             overrideAttributesXml: customAttributes);
                         shippingAddressModel.NewAddressPreselected = true;
@@ -1633,7 +1602,7 @@ namespace Nop.Web.Controllers
                     //get payment info
                     var paymentInfo = paymentMethod.GetPaymentInfo(form);
                     //set previous order GUID (if exists)
-                    GenerateOrderGuid(paymentInfo);
+                    _paymentService.GenerateOrderGuid(paymentInfo);
 
                     //session save
                     HttpContext.Session.Set("OrderPaymentInfo", paymentInfo);
@@ -1704,7 +1673,7 @@ namespace Nop.Web.Controllers
 
                     processPaymentRequest = new ProcessPaymentRequest();
                 }
-                GenerateOrderGuid(processPaymentRequest);
+                _paymentService.GenerateOrderGuid(processPaymentRequest);
                 processPaymentRequest.StoreId = _storeContext.CurrentStore.Id;
                 processPaymentRequest.CustomerId = _workContext.CurrentCustomer.Id;
                 processPaymentRequest.PaymentMethodSystemName = _genericAttributeService.GetAttribute<string>(_workContext.CurrentCustomer,
